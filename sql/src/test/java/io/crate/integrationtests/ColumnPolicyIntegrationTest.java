@@ -44,7 +44,9 @@ import org.junit.rules.ExpectedException;
 
 import javax.annotation.Nullable;
 import java.io.File;
+import java.io.IOException;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.Map;
 
 import static org.hamcrest.Matchers.*;
@@ -60,6 +62,16 @@ public class ColumnPolicyIntegrationTest extends SQLTransportIntegrationTest {
 
     @Rule
     public ExpectedException expectedException = ExpectedException.none();
+
+    public MappingMetaData getMappingMetadata(String index){
+        return clusterService().state().metaData().indices()
+                .get(index)
+                .getMappings().get(Constants.DEFAULT_MAPPING_TYPE);
+    }
+
+    public Map<String, Object> getSourceMap(String index) throws IOException {
+        return getMappingMetadata(index).getSourceAsMap();
+    }
 
 
     @Test
@@ -138,6 +150,128 @@ public class ColumnPolicyIntegrationTest extends SQLTransportIntegrationTest {
         assertThat(TestingHelpers.printedTable(response.rows()), is(
                 "NULL| 1| Ford\n" +
                 "true| 2| Trillian\n"));
+    }
+
+    @Test
+    public void testInsertArrayIntoDynamicTable() throws Exception {
+        execute("create table dynamic_table (" +
+                "  meta string" +
+                ") with (column_policy='dynamic', number_of_replicas=0)");
+        ensureGreen();
+        execute("insert into dynamic_table (new, meta) values(['a', 'b', 'c'], 'hello')");
+        execute("refresh table dynamic_table");
+        execute("insert into dynamic_table (new) values(['d', 'e', 'f'])");
+
+        Map<String, Object> sourceMap = getSourceMap("dynamic_table");
+        assertThat(String.valueOf(nestedValue(sourceMap, "properties.new.type")), is("string"));
+        assertThat(String.valueOf(nestedValue(sourceMap, "properties.meta.type")), is("string"));
+        assertThat(String.valueOf(nestedValue(sourceMap, "_meta.columns.new.collection_type")), is("array"));
+    }
+
+    @Test
+    public void testInsertNestedArrayIntoDynamicTable() throws Exception {
+        execute("create table dynamic_table (" +
+                "  meta string" +
+                ") with (column_policy='dynamic', number_of_replicas=0)");
+        ensureGreen();
+        execute("insert into dynamic_table (new, meta) values({a=['a', 'b', 'c'], nest={a=['a','b']}}, 'hello')");
+        execute("refresh table dynamic_table");
+        execute("insert into dynamic_table (new) values({a=['d', 'e', 'f']})");
+        execute("refresh table dynamic_table");
+        execute("insert into dynamic_table (new) values({nest={}, new={}})");
+
+        Map<String, Object> sourceMap = getSourceMap("dynamic_table");
+        assertThat(String.valueOf(nestedValue(sourceMap, "properties.new.properties.a.type")), is("string"));
+        assertThat(String.valueOf(nestedValue(sourceMap, "properties.new.properties.nest.properties.a.type")), is("string"));
+        assertThat(String.valueOf(nestedValue(sourceMap, "properties.meta.type")), is("string"));
+        assertThat(String.valueOf(nestedValue(sourceMap, "_meta.columns.new.properties.a.collection_type")), is("array"));
+        assertThat(String.valueOf(nestedValue(sourceMap, "_meta.columns.new.properties.nest.properties.a.collection_type")), is("array"));
+
+    }
+
+    @Test
+    public void testInsertNestedObject() throws Exception {
+        execute("create table dynamic_table (" +
+                "  meta object(strict) as (" +
+                "     meta object" +
+                "  )" +
+                ") with (column_policy='dynamic', number_of_replicas=0)");
+        ensureGreen();
+        execute("insert into dynamic_table (meta) values({meta={a=['a','b']}})");
+        execute("refresh table dynamic_table");
+        waitNoPendingTasksOnAll();
+        execute("insert into dynamic_table (meta) values({meta={a=['c','d']}})");
+        Map<String, Object> sourceMap = getSourceMap("dynamic_table");
+        assertThat(String.valueOf(nestedValue(sourceMap, "properties.meta.properties.meta.properties.a.type")), is("string"));
+        assertThat(String.valueOf(nestedValue(sourceMap, "_meta.columns.meta.properties.meta.properties.a.collection_type")), is("array"));
+
+    }
+
+    @Test
+    public void testInsertMultipleValuesDynamic() throws Exception {
+        execute("create table dynamic_table (" +
+                "  my_object object " +
+                ") with (column_policy='dynamic', number_of_replicas=0)");
+        ensureGreen();
+
+        execute("insert into dynamic_table (my_object) values ({a=['a','b']}),({b=['a']})");
+        execute("refresh table dynamic_table");
+
+        Map<String, Object> sourceMap = getSourceMap("dynamic_table");
+        assertThat(String.valueOf(nestedValue(sourceMap, "properties.my_object.properties.a.type")), is("string"));
+        assertThat(String.valueOf(nestedValue(sourceMap, "properties.my_object.properties.b.type")), is("string"));
+
+        assertThat(String.valueOf(nestedValue(sourceMap, "_meta.columns.my_object.properties.a.collection_type")), is("array"));
+        assertThat(String.valueOf(nestedValue(sourceMap, "_meta.columns.my_object.properties.b.collection_type")), is("array"));
+    }
+
+    @Test
+    public void testAddColumnToStrictObject() throws Exception {
+        execute("create table books(" +
+                "   author object(dynamic) as (" +
+                "       name object(strict) as (" +
+                "           first_name string" +
+                "       )" +
+                "   )," +
+                "   title string" +
+                ")");
+        ensureGreen();
+        Map<String, Object> authorMap = new HashMap<String, Object>(){{
+            put("name", new HashMap<String, Object>(){{
+                put("first_name", "Douglas");
+            }});
+        }};
+        execute("insert into books (title, author) values (?,?)",
+                new Object[]{
+                        "The Hitchhiker's Guide to the Galaxy",
+                        authorMap
+                });
+        execute("refresh table books");
+        expectedException.expect(SQLActionException.class);
+        expectedException.expectMessage("Column 'author.name.middle_name' unknown");
+        authorMap = new HashMap<String, Object>(){{
+            put("name", new HashMap<String, Object>(){{
+                put("first_name", "Douglas");
+                put("middle_name", "Noel");
+            }});
+        }};
+        execute("insert into books (title, author) values (?,?)",
+                new Object[]{
+                        "Life, the Universe and Everything",
+                        authorMap
+                });
+    }
+
+    public Object nestedValue(Map<String, Object> map, String dottedPath){
+        String[] paths = dottedPath.split("\\.");
+        Object value = null;
+        for(String key : paths){
+            value = map.get(key);
+            if(value instanceof Map){
+                map = (Map<String, Object>)map.get(key);
+            }
+        }
+        return value;
     }
 
     @Test
