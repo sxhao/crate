@@ -5,6 +5,9 @@ Changes for Crate
 Unreleased
 ==========
 
+ - Fix: Changed default log level of action execution errors to INFO
+   to reduce log sizes
+
  - Fix: Using CLUSTERED BY Column in PARTITIONED BY clause threw
    misleading exception
 
