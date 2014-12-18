@@ -35,6 +35,7 @@ import io.crate.operation.operator.any.AnyNotLikeOperator;
 import io.crate.operation.operator.any.AnyOperator;
 import io.crate.operation.predicate.NotPredicate;
 import io.crate.operation.reference.partitioned.PartitionExpression;
+import io.crate.operation.scalar.ExtractFunctions;
 import io.crate.operation.scalar.SubscriptFunction;
 import io.crate.operation.scalar.cast.CastFunctionResolver;
 import io.crate.planner.RowGranularity;
@@ -109,6 +110,20 @@ abstract class DataStatementAnalyzer<T extends AbstractDataAnalyzedStatement> ex
         Symbol argSymbol = node.getExpression().accept(this, context);
         FunctionInfo functionInfo = CastFunctionResolver.functionInfo(argSymbol.valueType(), returnType);
         return context.allocateFunction(functionInfo, Arrays.asList(argSymbol));
+    }
+
+    @Override
+    protected Symbol visitExtract(Extract node, T context) {
+        Symbol expression = process(node.getExpression(), context);
+        if (!expression.valueType().equals(DataTypes.TIMESTAMP)) {
+            if (expression.valueType().isConvertableTo(DataTypes.TIMESTAMP)) {
+                FunctionInfo castFunctionInfo = CastFunctionResolver.functionInfo(expression.valueType(), DataTypes.TIMESTAMP);
+                expression = context.allocateFunction(castFunctionInfo, Arrays.asList(expression));
+            } else {
+                throw new IllegalArgumentException("Extract functions only works on expressions that return a timestamp");
+            }
+        }
+        return context.allocateFunction(ExtractFunctions.functionInfo(node.getField()), Arrays.asList(expression));
     }
 
     @Override

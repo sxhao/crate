@@ -144,10 +144,81 @@ If the time zone is not specified, truncation is based on UTC time::
     +---------------+---------------+
     SELECT 3 rows in set (... sec)
 
+extract(field from source) returns long
+---------------------------------------
+
+The ``extract`` function retrieves subfields such as day, hour or minute from a
+timestamp.
+
+``source`` must be an expression that returns a timestamp. In case the
+expression has a different return type but is known to be castable to timestamp
+an implicit cast will be attempted.
+
+``field`` is an identifier that selects which part of the timestamp to extract.
+The following fields are supported:
+
+
+**CENTURY**
+  | century of era
+
+  Returns the ISO representation which is a straight split of the date.
+  Year 2000 century 20 and year 2001 is also century 20. This is different
+  to the GregorianJulian (GJ) calendar system where 2001 would be century
+  21.
+
+**YEAR**
+  | the year field
+
+**QUARTER**
+  | the quarter of the year (1 - 4)
+
+**MONTH**
+  | the month of the year
+
+**WEEK**
+  | the week of the year
+
+**DAY**
+  | the day of the month
+
+**DAY_OF_MONTH**
+  | same as ``day``
+
+**DAY_OF_WEEK**
+  | day of the week. Starting with Monday (1) to Sunday (7)
+
+**DOW**
+  | same as ``day_of_week``
+
+**DAY_OF_YEAR**
+  | the day of the year (1 - 365 / 366)
+
+**DOY**
+  | same as ``day_of_year``
+
+**HOUR**
+  | the hour field
+
+**MINUTE**
+  | the minute field
+
+**SECOND**
+  | the second field
+
+::
+
+    cr> select extract(day from '2014-08-23') from sys.cluster;
+    +--------------------------------+
+    | EXTRACT(DAY FROM '2014-08-23') |
+    +--------------------------------+
+    |                             23 |
+    +--------------------------------+
+    SELECT 1 row in set (... sec)
 
 .. _`available time zones`: http://www.joda.org/joda-time/timezones.html
 
 .. _`Joda-Time`: http://www.joda.org/joda-time/
+
 
 Geo Functions
 =============

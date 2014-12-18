@@ -2020,4 +2020,32 @@ public class SelectAnalyzerTest extends BaseAnalyzerTest {
         expectedException.expectMessage("Cannot resolve reference sys.shards.id, reason: finer granularity than table 'sys.nodes'");
         analyze("select sys.shards.id from sys.nodes");
     }
+
+    @Test
+    public void testExtractFunctionWithLiteral() throws Exception {
+        SelectAnalyzedStatement statement = analyze("select extract(day from '2012-03-24') from users");
+        Symbol symbol = statement.outputSymbols().get(0);
+        assertThat(symbol, isLiteral(24L, DataTypes.LONG));
+    }
+
+    @Test
+    public void testExtractFunctionWithWrongType() throws Exception {
+        SelectAnalyzedStatement statement = analyze("select extract(day from name) from users");
+        Symbol symbol = statement.outputSymbols().get(0);
+        assertThat(symbol, isFunction("extract_DAY_OF_MONTH"));
+
+        Symbol argument = ((Function) symbol).arguments().get(0);
+        assertThat(argument, isFunction("toTimestamp"));
+    }
+
+    @Test
+    public void testExtractFunctionWithCorrectType() throws Exception {
+        SelectAnalyzedStatement statement = analyze("select extract(day from timestamp) from transactions");
+
+        Symbol symbol = statement.outputSymbols().get(0);
+        assertThat(symbol, isFunction("extract_DAY_OF_MONTH"));
+
+        Symbol argument = ((Function) symbol).arguments().get(0);
+        assertThat(argument, isReference("timestamp"));
+    }
 }
