@@ -206,7 +206,7 @@ public class TransportExecutor implements Executor, TaskExecutor {
 
         @Override
         public ImmutableList<Task> visitGlobalAggregateNode(GlobalAggregateNode globalAggregateNode, UUID jobId) {
-            return ImmutableList.<Task>builder()
+            return ImmutableList.<JobTask>builder()
                     .addAll(
                         visitCollectNode(globalAggregateNode.collectNode(), jobId))
                     .addAll(
@@ -216,7 +216,7 @@ public class TransportExecutor implements Executor, TaskExecutor {
 
         @Override
         public ImmutableList<Task> visitDistributedGroupByPlanNode(DistributedGroupByPlanNode distributedGroupByPlanNode, UUID jobId) {
-            return ImmutableList.<Task>builder()
+            return ImmutableList.<JobTask>builder()
                     .addAll(
                         visitCollectNode(distributedGroupByPlanNode.collectNode(), jobId)
                     ).addAll(
